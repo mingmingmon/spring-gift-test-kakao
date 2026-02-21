@@ -130,40 +130,40 @@ class GiftAcceptanceTest extends BaseAcceptanceTest {
 
     // F-GIFT-3
     @Test
-    @DisplayName("수량이 0인 선물하기 시 현재 행동을 확인한다")
-    void 수량이_0인_선물하기_시_현재_행동을_확인한다() {
+    @DisplayName("수량이 0인 선물하기 요청은 실패하고 재고는 변하지 않는다")
+    void 수량이_0인_선물하기_요청은_실패하고_재고는_변하지_않는다() {
         // Given
         Member sender = memberRepository.save(new Member("보내는사람", "sender@test.com"));
         Member receiver = memberRepository.save(new Member("받는사람", "receiver@test.com"));
         Option option = 옵션_생성(10);
 
-        // When: quantity=0 선물 (현재 시스템은 검증 없이 성공)
+        // When: quantity=0 선물 요청
         선물하기_요청(sender.getId(), option.getId(), receiver.getId(), 0)
                 .then()
-                .statusCode(200);
+                .statusCode(500);
 
-        // Then: 재고 불변 (decrease(0)은 아무 변화 없음)
+        // Then: 재고 불변 (상태 불변)
         Option updated = optionRepository.findById(option.getId()).orElseThrow();
         assertThat(updated.getQuantity()).isEqualTo(10);
     }
 
     // F-GIFT-4
     @Test
-    @DisplayName("수량이 음수인 선물하기 시 현재 행동을 확인한다")
-    void 수량이_음수인_선물하기_시_현재_행동을_확인한다() {
+    @DisplayName("수량이 음수인 선물하기 요청은 실패하고 재고는 변하지 않는다")
+    void 수량이_음수인_선물하기_요청은_실패하고_재고는_변하지_않는다() {
         // Given
         Member sender = memberRepository.save(new Member("보내는사람", "sender@test.com"));
         Member receiver = memberRepository.save(new Member("받는사람", "receiver@test.com"));
         Option option = 옵션_생성(10);
 
-        // When: quantity=-5 선물 (명확한 버그: 재고가 증가함)
+        // When: quantity=-5 선물 요청
         선물하기_요청(sender.getId(), option.getId(), receiver.getId(), -5)
                 .then()
-                .statusCode(200);
+                .statusCode(500);
 
-        // Then: 재고가 10 → 15로 증가 (버그 가시화)
+        // Then: 재고 불변 (상태 불변)
         Option updated = optionRepository.findById(option.getId()).orElseThrow();
-        assertThat(updated.getQuantity()).isEqualTo(15);
+        assertThat(updated.getQuantity()).isEqualTo(10);
     }
 
     // F-GIFT-5
@@ -200,21 +200,20 @@ class GiftAcceptanceTest extends BaseAcceptanceTest {
 
     // F-GIFT-7
     @Test
-    @DisplayName("존재하지 않는 받는 회원에게 선물하기 시 현재 행동을 확인한다")
-    void 존재하지_않는_받는_회원에게_선물하기_시_현재_행동을_확인한다() {
+    @DisplayName("존재하지 않는 받는 회원에게 선물하기 요청은 실패하고 재고는 변하지 않는다")
+    void 존재하지_않는_받는_회원에게_선물하기_요청은_실패하고_재고는_변하지_않는다() {
         // Given
         Member sender = memberRepository.save(new Member("보내는사람", "sender@test.com"));
         Option option = 옵션_생성(10);
 
-        // When: 존재하지 않는 수신자(999999)에게 선물
-        // FakeGiftDelivery는 getTo(받는사람)를 조회하지 않으므로 성공할 가능성이 높다
+        // When: 존재하지 않는 수신자(999999)에게 선물 요청
         선물하기_요청(sender.getId(), option.getId(), 999999L, 3)
                 .then()
-                .statusCode(200);
+                .statusCode(500);
 
-        // Then: 수신자 검증 없이 선물 성공 + 재고 차감됨 (결함 가능성)
+        // Then: 재고 불변 (상태 불변)
         Option updated = optionRepository.findById(option.getId()).orElseThrow();
-        assertThat(updated.getQuantity()).isEqualTo(7);
+        assertThat(updated.getQuantity()).isEqualTo(10);
     }
 
     // F-GIFT-8

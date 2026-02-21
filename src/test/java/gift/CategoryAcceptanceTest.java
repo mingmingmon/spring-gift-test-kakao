@@ -63,24 +63,21 @@ class CategoryAcceptanceTest extends BaseAcceptanceTest {
 
     // F-CAT-1
     @Test
-    @DisplayName("이름이 null인 카테고리 생성 시 현재 행동을 확인한다")
-    void 이름이_null인_카테고리_생성_시_현재_행동을_확인한다() {
+    @DisplayName("이름이 null인 카테고리 생성 요청은 실패하고 카테고리는 생성되지 않는다")
+    void 이름이_null인_카테고리_생성_요청은_실패하고_카테고리는_생성되지_않는다() {
         // Given & When: name 파라미터 없이 카테고리 생성 요청
         RestAssured.given()
                 .when()
                 .post("/api/categories")
                 .then()
-                .statusCode(200)
-                .body("id", notNullValue())
-                .body("name", nullValue());
+                .statusCode(500);
 
-        // Then: name=null인 카테고리가 저장됨 (입력 검증 없음)
+        // Then: 카테고리가 생성되지 않았다 (상태 불변)
         RestAssured.given()
                 .when()
                 .get("/api/categories")
                 .then()
                 .statusCode(200)
-                .body("", hasSize(1))
-                .body("[0].name", nullValue());
+                .body("", hasSize(0));
     }
 }
