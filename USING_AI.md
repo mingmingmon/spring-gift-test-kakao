@@ -54,6 +54,13 @@
 - 입력값 문제뿐 아니라 시스템 상태에 따른 예외(존재하지 않는 리소스, 헤더 누락, 요청 바디 없음 등)도 포함하도록 범위를 확장
 - 이 요청으로 테스트 클래스 구조와 메서드 매핑도 함께 업데이트됨
 
+### Q7. TEST_STRATEGY.md 기반 테스트 코드 작성 요청
+
+> "TEST_STRATEGY.md 기반으로 테스트 코드 작성해줘. claude.md의 스텝 4도 참고해줘"
+
+- CLAUDE.md Step 4(RestAssured 인수 테스트 작성)에 따라 21개 시나리오를 코드로 구현하도록 요청
+- Claude가 구현 계획을 제시하고 승인 후 코드를 작성함
+
 ---
 
 ## 2. Claude의 제안을 어떻게 검증/수정했는가
@@ -132,3 +139,59 @@ Claude가 코드를 분석하여 추가로 발견한 시나리오:
 | 성공 시나리오 | 3개 | 7개 |
 | 실패 시나리오 | 6개 | 14개 |
 | 합계 | 9개 | **21개** |
+
+### 2.4 테스트 코드 구현 과정에서의 발견과 수정
+
+Claude가 TEST_STRATEGY.md의 21개 시나리오를 RestAssured 기반 인수 테스트로 구현했다.
+
+#### 첫 실행 결과: 21개 중 5개 실패
+
+| 실패 테스트 | 에러 내용 |
+|-----------|----------|
+| CategoryAcceptanceTest - S-CAT-1 (1개) | `Expected: 음료, Actual: null` — name이 바인딩되지 않음 |
+| ProductAcceptanceTest - S-PRD-1, S-PRD-2, F-PRD-3, F-PRD-4 (4개) | `Expected status code <200> but was <500>` — 모든 POST가 500 |
+
+#### 실패 원인 분석: @RequestBody 누락의 실제 영향
+
+project-analysis.md에서 이미 `@RequestBody` 누락을 [심각] 결함으로 식별했지만, 분석 단계에서는 "JSON 바인딩이 안 될 가능성"이라고만 예상했다. 실제 테스트 실행으로 드러난 영향은 더 심각했다:
+
+1. `@RequestBody`가 없으면 Spring은 `@ModelAttribute` 방식으로 form parameter 바인딩을 시도한다
+2. `@ModelAttribute` 바인딩은 DTO의 **setter 메서드**를 통해 값을 주입한다
+3. 그런데 `CreateCategoryRequest`, `CreateProductRequest`에는 **getter만 있고 setter가 없다**
+4. 따라서 어떤 방식(JSON이든 form param이든)으로 요청을 보내도 **모든 필드가 기본값(null/0)으로 남는다**
+
+구체적 결과:
+- **Category**: `name`이 항상 null → name=null인 카테고리가 그대로 DB에 저장됨 (200 OK)
+- **Product**: `categoryId`(Long)가 항상 null → `categoryRepository.findById(null)` → `IllegalArgumentException` → 500 에러
+- 즉, **Category/Product 생성 API가 완전히 깨진 상태**였다
+
+#### 해결: 테스트 assertion을 현재 시스템의 실제 행동에 맞게 수정
+
+CLAUDE.md 원칙 "테스트는 현재 시스템의 실제 행동을 기록한다"에 따라, 코드를 고치는 대신 **테스트의 기대값을 실제 행동에 맞게 수정**했다:
+
+| 도메인 | 수정 전 assertion (예상 행동) | 수정 후 assertion (실제 행동) |
+|--------|--------------------------|--------------------------|
+| Category S-CAT-1 | `name == "음료"`, 후속 조회 name 확인 | `name == null`, 후속 조회에서도 **name=null** 확인 |
+| Category S-CAT-2 | name 값 확인 | name 검증 제거, **레코드 개수(3개)만** 확인 |
+| Product S-PRD-1 | `statusCode(200)` + 상품 정보 확인 | `statusCode(500)` + 후속 조회에서 **상품 0개** 확인 |
+| Product S-PRD-2 | `statusCode(200)` 2번 + 상품 2개 확인 | `statusCode(500)` 2번 + **상품 0개** 확인 |
+| Product F-PRD-3 | `statusCode(200)` + 음수 가격 저장 확인 | `statusCode(500)` + **상품 미생성** 확인 |
+| Product F-PRD-4 | `statusCode(200)` + 가격 0 저장 확인 | `statusCode(500)` + **상품 미생성** 확인 |
+
+Gift 테스트는 `@RequestBody`가 올바르게 적용되어 있어 12개 전부 원안대로 통과했다.
+
+#### 이 과정의 효과
+
+1. **분석 단계 예측의 검증**: project-analysis.md에서 "결함 가능성"으로 기록한 것이 실제 테스트 실행으로 **확정된 결함**으로 승격되었다
+2. **결함의 정확한 범위 파악**: `@RequestBody` 누락이 단순히 "JSON 바인딩 실패"가 아니라, setter 부재와 결합되어 **모든 바인딩 방식이 불가능**함을 발견했다
+3. **행동 기반 테스트의 가치 증명**: 테스트가 "코드가 의도대로 동작하는가"가 아닌 "현재 시스템이 실제로 어떻게 동작하는가"를 기록함으로써, 향후 `@RequestBody` 추가 등의 수정 시 **행동 변화를 즉시 감지**할 수 있는 안전망이 됨
+4. **리팩터링 보호**: Category/Product 컨트롤러에 `@RequestBody`를 추가하면 기존 테스트가 실패하면서 "행동이 변경되었다"는 신호를 보내게 되어, CLAUDE.md가 목표로 하는 **리팩터링 보호**가 작동함
+
+#### 최종 결과: 21개 전체 통과
+
+| 클래스 | 테스트 수 | 결과 |
+|--------|----------|------|
+| CategoryAcceptanceTest | 3 | 전체 통과 |
+| ProductAcceptanceTest | 6 | 전체 통과 |
+| GiftAcceptanceTest | 12 | 전체 통과 |
+| **합계** | **21** | **전체 통과** |
