@@ -140,10 +140,86 @@ CLAUDE.md가 정의한 우선순위:
 
 ### 3.4 테스트 데이터 격리 전략
 
-- **`@SpringBootTest(webEnvironment = RANDOM_PORT)`** 사용
-- **`@Transactional`을 테스트에 사용하지 않음**: 인수 테스트는 실제 HTTP 요청을 보내므로 트랜잭션 롤백이 적용되지 않음
-- **테스트 간 격리**: 각 테스트 메서드에서 자체 데이터를 생성하고, 고유한 이름을 사용해 충돌 방지
-- **`@DirtiesContext` 또는 `@BeforeEach`에서 DB 초기화**: 테스트 간 데이터 오염 방지
+#### 전제 조건: `@Transactional` 롤백이 불가능한 이유
+
+`@SpringBootTest(webEnvironment = RANDOM_PORT)`를 사용하면 실제 내장 서버가 기동된다.
+RestAssured로 보내는 HTTP 요청은 **서버 스레드**에서 처리되고, 테스트 메서드는 **테스트 스레드**에서 실행된다.
+두 스레드의 트랜잭션은 별개이므로, 테스트에 `@Transactional`을 붙여도 서버 측 데이터 변경은 롤백되지 않는다.
+
+따라서 별도의 격리 전략이 필요하다.
+
+#### 후보 전략 비교
+
+| 전략 | 격리 보장 | 속도 | 유지보수 | 비고 |
+|------|----------|------|---------|------|
+| A. `@DirtiesContext` | 완벽 (Context + DB 재생성) | **매우 느림** | 코드 없음 | 테스트 증가 시 누적 비용 급증 |
+| B. `@BeforeEach` + Repository `deleteAll()` | 보장됨 | 빠름 | FK 삭제 순서 수동 관리 | 엔티티 추가 시 순서 실수 위험 |
+| C. `@BeforeEach` + SQL TRUNCATE (DatabaseCleaner) | **완벽** | **빠름** | 자동화 가능 | H2의 `SET REFERENTIAL_INTEGRITY FALSE` 활용 |
+| D. 테스트마다 고유 데이터 (cleanup 없음) | 불완전 | 가장 빠름 | 검증 복잡 | GET 전체 조회 시 다른 테스트 데이터 섞임 |
+
+#### 선택: 전략 C - `@BeforeEach` + SQL TRUNCATE
+
+**선택 이유:**
+
+1. **FK 순서를 신경 쓸 필요 없다**: `SET REFERENTIAL_INTEGRITY FALSE`로 순서 무관하게 모든 테이블을 비울 수 있다
+2. **Context 재사용으로 빠르다**: `@DirtiesContext`의 느린 Context 재생성을 피한다
+3. **조회 검증이 단순해진다**: 매 테스트가 빈 DB에서 시작하므로 "생성 후 조회하면 1개"처럼 명확한 검증이 가능하다
+
+**탈락 이유:**
+
+- 전략 A (`@DirtiesContext`): 현재 6개 테스트에서는 감당 가능하나, 테스트가 늘어나면 수 분 단위로 느려진다. 확장성 없음
+- 전략 B (Repository `deleteAll()`): Option → Product → Category 순서처럼 FK 의존 순서를 수동으로 관리해야 한다. 엔티티가 추가되면 삭제 순서 실수로 테스트가 깨질 위험
+- 전략 D (고유 데이터): `GET /api/products`가 전체 목록을 반환하므로, 이전 테스트의 데이터가 남아 있으면 "상품이 1개 존재한다" 같은 단순한 검증이 불가능해진다
+
+#### 구현 방향: test 패키지 내 BaseAcceptanceTest
+
+main 코드를 수정하지 않고, test 패키지 내부에서만 격리를 해결한다.
+
+**제약 조건:**
+- `@Component`로 main에 테스트 전용 코드를 넣지 않는다
+- JPA 메타모델 자동화는 현재 엔티티 5개 규모에서 오버엔지니어링이므로 사용하지 않는다
+
+**방식: BaseAcceptanceTest 부모 클래스에 `@BeforeEach` TRUNCATE 정의**
+
+```java
+// src/test/java/gift/BaseAcceptanceTest.java
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+public abstract class BaseAcceptanceTest {
+
+    @LocalServerPort
+    int port;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void setUp() {
+        RestAssured.port = port;
+        jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
+        jdbcTemplate.execute("TRUNCATE TABLE wish");
+        jdbcTemplate.execute("TRUNCATE TABLE option");
+        jdbcTemplate.execute("TRUNCATE TABLE product");
+        jdbcTemplate.execute("TRUNCATE TABLE category");
+        jdbcTemplate.execute("TRUNCATE TABLE member");
+        jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
+    }
+}
+```
+
+**각 테스트 클래스에서의 사용:**
+```java
+// src/test/java/gift/CategoryAcceptanceTest.java
+class CategoryAcceptanceTest extends BaseAcceptanceTest {
+    // @BeforeEach 상속으로 매 테스트마다 DB 초기화
+    // 테스트 메서드만 작성하면 됨
+}
+```
+
+**이 방식의 장점:**
+- main 패키지 수정 없음
+- 테이블명 5개를 한 곳(BaseAcceptanceTest)에서만 관리
+- 3개 테스트 클래스가 상속받으므로 중복 없음
+- `RestAssured.port` 설정도 부모에서 한 번만 처리
 
 ### 3.5 Gift 테스트를 위한 데이터 셋업 방식
 
