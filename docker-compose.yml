@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: gift-test-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: gift_test
+      POSTGRES_USER: gift
+      POSTGRES_PASSWORD: gift1234
+    volumes:
+      - gift-data:/var/lib/postgresql/data
+
+volumes:
+  gift-data:
