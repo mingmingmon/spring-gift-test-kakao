@@ -1,12 +1,10 @@
 package gift;
 
-import gift.model.Category;
-import gift.model.CategoryRepository;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.jdbc.Sql;
 
 import java.util.Map;
 
@@ -14,17 +12,15 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 
+@Sql("classpath:sql/truncate.sql")
 class ProductAcceptanceTest extends BaseAcceptanceTest {
-
-    @Autowired
-    CategoryRepository categoryRepository;
 
     // S-PRD-1
     @Test
     @DisplayName("상품을 생성하면 조회할 수 있다")
     void 상품을_생성하면_조회할_수_있다() {
-        // Given: 카테고리가 존재한다
-        Category category = categoryRepository.save(new Category("음료"));
+        // Given: 카테고리가 존재한다 (API를 통한 데이터 준비)
+        long categoryId = 카테고리_생성("음료");
 
         // When: 상품 생성
         RestAssured.given()
@@ -33,7 +29,7 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                         "name", "아메리카노",
                         "price", 4500,
                         "imageUrl", "http://image.png",
-                        "categoryId", category.getId()
+                        "categoryId", categoryId
                 ))
                 .when()
                 .post("/api/products")
@@ -58,9 +54,9 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
     @Test
     @DisplayName("서로 다른 카테고리에 상품을 각각 생성할 수 있다")
     void 서로_다른_카테고리에_상품을_각각_생성할_수_있다() {
-        // Given: 카테고리 2개 생성
-        Category categoryA = categoryRepository.save(new Category("음료"));
-        Category categoryB = categoryRepository.save(new Category("간식"));
+        // Given: 카테고리 2개 생성 (API를 통한 데이터 준비)
+        long categoryA = 카테고리_생성("음료");
+        long categoryB = 카테고리_생성("간식");
 
         // When: 각 카테고리에 상품 생성
         RestAssured.given()
@@ -69,7 +65,7 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                         "name", "아메리카노",
                         "price", 4500,
                         "imageUrl", "http://image.png",
-                        "categoryId", categoryA.getId()
+                        "categoryId", categoryA
                 ))
                 .when()
                 .post("/api/products")
@@ -82,7 +78,7 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                         "name", "쿠키",
                         "price", 3000,
                         "imageUrl", "http://image.png",
-                        "categoryId", categoryB.getId()
+                        "categoryId", categoryB
                 ))
                 .when()
                 .post("/api/products")
@@ -155,8 +151,8 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
     @Test
     @DisplayName("가격이 음수인 상품 생성 요청은 실패하고 상품은 생성되지 않는다")
     void 가격이_음수인_상품_생성_요청은_실패하고_상품은_생성되지_않는다() {
-        // Given: 카테고리 생성
-        Category category = categoryRepository.save(new Category("음료"));
+        // Given: 카테고리 생성 (API를 통한 데이터 준비)
+        long categoryId = 카테고리_생성("음료");
 
         // When: 음수 가격으로 상품 생성
         RestAssured.given()
@@ -165,7 +161,7 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                         "name", "아메리카노",
                         "price", -1000,
                         "imageUrl", "http://image.png",
-                        "categoryId", category.getId()
+                        "categoryId", categoryId
                 ))
                 .when()
                 .post("/api/products")
@@ -185,8 +181,8 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
     @Test
     @DisplayName("가격이 0인 상품 생성 요청은 실패하고 상품은 생성되지 않는다")
     void 가격이_0인_상품_생성_요청은_실패하고_상품은_생성되지_않는다() {
-        // Given: 카테고리 생성
-        Category category = categoryRepository.save(new Category("음료"));
+        // Given: 카테고리 생성 (API를 통한 데이터 준비)
+        long categoryId = 카테고리_생성("음료");
 
         // When: 가격 0으로 상품 생성
         RestAssured.given()
@@ -195,7 +191,7 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                         "name", "아메리카노",
                         "price", 0,
                         "imageUrl", "http://image.png",
-                        "categoryId", category.getId()
+                        "categoryId", categoryId
                 ))
                 .when()
                 .post("/api/products")
@@ -209,5 +205,18 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                 .then()
                 .statusCode(200)
                 .body("", hasSize(0));
+    }
+
+    private long 카테고리_생성(String name) {
+        return RestAssured.given()
+                .contentType(ContentType.JSON)
+                .body(Map.of("name", name))
+                .when()
+                .post("/api/categories")
+                .then()
+                .statusCode(200)
+                .extract()
+                .jsonPath()
+                .getLong("id");
     }
 }

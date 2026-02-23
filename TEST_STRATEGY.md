@@ -338,7 +338,7 @@ RestAssured로 보내는 HTTP 요청은 **서버 스레드**에서 처리되고,
 | C. `@BeforeEach` + SQL TRUNCATE (DatabaseCleaner) | **완벽** | **빠름** | 자동화 가능 | H2의 `SET REFERENTIAL_INTEGRITY FALSE` 활용 |
 | D. 테스트마다 고유 데이터 (cleanup 없음) | 불완전 | 가장 빠름 | 검증 복잡 | GET 전체 조회 시 다른 테스트 데이터 섞임 |
 
-#### 선택: 전략 C - `@BeforeEach` + SQL TRUNCATE
+#### 선택: 전략 C - `@Sql` TRUNCATE
 
 **선택 이유:**
 
@@ -352,15 +352,27 @@ RestAssured로 보내는 HTTP 요청은 **서버 스레드**에서 처리되고,
 - 전략 B (Repository `deleteAll()`): Option → Product → Category 순서처럼 FK 의존 순서를 수동으로 관리해야 한다. 엔티티가 추가되면 삭제 순서 실수로 테스트가 깨질 위험
 - 전략 D (고유 데이터): `GET /api/products`가 전체 목록을 반환하므로, 이전 테스트의 데이터가 남아 있으면 "상품이 1개 존재한다" 같은 단순한 검증이 불가능해진다
 
-#### 구현 방향: test 패키지 내 BaseAcceptanceTest
+#### 구현 방향: `@Sql` + BaseAcceptanceTest
 
 main 코드를 수정하지 않고, test 패키지 내부에서만 격리를 해결한다.
+TRUNCATE는 SQL 파일로 분리하고, `@Sql` 어노테이션을 통해 각 테스트 클래스에서 선언적으로 실행한다.
 
 **제약 조건:**
 - `@Component`로 main에 테스트 전용 코드를 넣지 않는다
 - JPA 메타모델 자동화는 현재 엔티티 5개 규모에서 오버엔지니어링이므로 사용하지 않는다
 
-**방식: BaseAcceptanceTest 부모 클래스에 `@BeforeEach` TRUNCATE 정의**
+**방식: `@Sql("truncate.sql")` + BaseAcceptanceTest**
+
+```sql
+-- src/test/resources/sql/truncate.sql
+SET REFERENTIAL_INTEGRITY FALSE;
+TRUNCATE TABLE wish;
+TRUNCATE TABLE option;
+TRUNCATE TABLE product;
+TRUNCATE TABLE category;
+TRUNCATE TABLE member;
+SET REFERENTIAL_INTEGRITY TRUE;
+```
 
 ```java
 // src/test/java/gift/BaseAcceptanceTest.java
@@ -376,47 +388,94 @@ public abstract class BaseAcceptanceTest {
     @BeforeEach
     void setUp() {
         RestAssured.port = port;
-        jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY FALSE");
-        jdbcTemplate.execute("TRUNCATE TABLE wish");
-        jdbcTemplate.execute("TRUNCATE TABLE option");
-        jdbcTemplate.execute("TRUNCATE TABLE product");
-        jdbcTemplate.execute("TRUNCATE TABLE category");
-        jdbcTemplate.execute("TRUNCATE TABLE member");
-        jdbcTemplate.execute("SET REFERENTIAL_INTEGRITY TRUE");
     }
 }
 ```
 
 **각 테스트 클래스에서의 사용:**
 ```java
-// src/test/java/gift/CategoryAcceptanceTest.java
-class CategoryAcceptanceTest extends BaseAcceptanceTest {
-    // @BeforeEach 상속으로 매 테스트마다 DB 초기화
-    // 테스트 메서드만 작성하면 됨
-}
+// 데이터 준비가 필요 없는 클래스: TRUNCATE만 선언
+@Sql("classpath:sql/truncate.sql")
+class CategoryAcceptanceTest extends BaseAcceptanceTest {  }
+
+// 데이터 준비가 필요한 클래스: TRUNCATE + 데이터 SQL 선언
+@Sql({"classpath:sql/truncate.sql", "classpath:sql/gift-data.sql"})
+@SqlMergeMode(SqlMergeMode.MergeMode.MERGE)
+class GiftAcceptanceTest extends BaseAcceptanceTest {  }
 ```
 
 **이 방식의 장점:**
 - main 패키지 수정 없음
-- 테이블명 5개를 한 곳(BaseAcceptanceTest)에서만 관리
-- 3개 테스트 클래스가 상속받으므로 중복 없음
-- `RestAssured.port` 설정도 부모에서 한 번만 처리
+- TRUNCATE 로직이 SQL 파일로 분리되어 관심사가 명확
+- `@Sql`의 선언적 방식으로 각 테스트 클래스의 데이터 요구사항이 명시적
+- `@SqlMergeMode(MERGE)`로 클래스/메서드 레벨 SQL을 조합 가능
+- `@BeforeEach`는 `RestAssured.port` 설정만 담당하여 역할이 단순
 
-### 3.5 Gift 테스트를 위한 데이터 셋업 방식
+### 3.5 도메인별 데이터 준비 방식
 
-Gift API 테스트는 Member와 Option이 필수이지만 API가 없으므로, 다음 방식을 사용한다:
+#### 카테고리/상품 테스트
 
+| 데이터 | 준비 방식 | 이유 |
+|--------|----------|------|
+| Category | **API 호출** (`POST /api/categories`) | API가 존재하므로 우선순위 1 적용 |
+| Product | **API 호출** (`POST /api/products`) | API가 존재하므로 우선순위 1 적용 |
+
+ProductAcceptanceTest에서 카테고리는 API 헬퍼 메서드를 통해 생성하고 ID를 추출한다:
+
+```java
+private long 카테고리_생성(String name) {
+    return RestAssured.given()
+            .contentType(ContentType.JSON)
+            .body(Map.of("name", name))
+            .when()
+            .post("/api/categories")
+            .then()
+            .statusCode(200)
+            .extract().jsonPath().getLong("id");
+}
 ```
-방식: @Autowired Repository를 통한 직접 저장
 
-이유:
-- CLAUDE.md 우선순위 2에 해당 (테스트 전용 fixture)
-- API가 존재하지 않는 데이터에 한해서만 사용
-- Category, Product는 API로 생성하고, Member/Option만 Repository로 준비
+#### Gift 테스트
+
+Gift API 테스트는 Member, Category, Product, Option이 필수이지만
+Member와 Option은 API가 없으므로 `@Sql` 파일로 준비한다:
+
+```sql
+-- src/test/resources/sql/gift-data.sql
+INSERT INTO member (id, name, email) VALUES (1, '보내는사람', 'sender@test.com');
+INSERT INTO member (id, name, email) VALUES (2, '받는사람', 'receiver@test.com');
+INSERT INTO category (id, name) VALUES (1, '테스트카테고리');
+INSERT INTO product (id, name, price, image_url, category_id) VALUES (1, '테스트상품', 10000, 'http://image.png', 1);
+INSERT INTO option (id, name, quantity, product_id) VALUES (1, '기본옵션', 10, 1);
 ```
 
-이는 "DB 직접 조회"가 아닌 "테스트 전용 fixture"에 해당하며,
-API가 없는 데이터를 준비하기 위한 불가피한 선택이다.
+| 데이터 | 준비 방식 | 고정 ID | 이유 |
+|--------|----------|---------|------|
+| Member | `@Sql("gift-data.sql")` | sender=1, receiver=2 | API 없음. SQL 파일로 선언적 준비 |
+| Category | `@Sql("gift-data.sql")` | 1 | Gift 테스트에서 카테고리 생성은 관심사가 아님 |
+| Product | `@Sql("gift-data.sql")` | 1 | Gift 테스트에서 상품 생성은 관심사가 아님 |
+| Option | `@Sql("gift-data.sql")` | 1 (기본 qty=10) | API 없음. SQL 파일로 선언적 준비 |
+
+**테스트별 옵션 수량 변경이 필요한 경우:**
+
+`@SqlMergeMode(MERGE)`를 활용하여 클래스 레벨 SQL 실행 후 메서드 레벨에서 수량을 조정한다:
+
+```java
+@Sql({"classpath:sql/truncate.sql", "classpath:sql/gift-data.sql"})
+@SqlMergeMode(SqlMergeMode.MergeMode.MERGE)
+class GiftAcceptanceTest extends BaseAcceptanceTest {
+
+    @Test  // 기본 qty=10 사용
+    void 선물하기에_성공하면_재고가_차감된다() {  }
+
+    @Test
+    @Sql(statements = "UPDATE option SET quantity = 3 WHERE id = 1")  // qty=3으로 변경
+    void 재고_전부를_선물하면_재고가_0이_된다() {  }
+}
+```
+
+이 방식은 CLAUDE.md 우선순위 2(테스트 전용 fixture)에 해당하며,
+Repository 의존 없이 SQL 파일로 선언적으로 데이터를 준비한다.
 
 ---
 
@@ -456,13 +515,20 @@ CLAUDE.md 절대 원칙에 따라 다음은 검증하지 않는다:
 = 정확히 10개가 차감되었음을 간접 증명
 ```
 
-**전략 B: Repository 직접 조회 (보조)**
+**전략 B: JdbcTemplate SQL 조회 (보조)**
 ```
 Option 조회 API가 없으므로, 재고 수량의 정확한 값 검증이 필요할 때
-@Autowired OptionRepository로 직접 조회
+BaseAcceptanceTest의 JdbcTemplate으로 직접 SQL 조회
+```
+
+```java
+int quantity = jdbcTemplate.queryForObject(
+        "SELECT quantity FROM option WHERE id = ?", Integer.class, optionId);
+assertThat(quantity).isEqualTo(7);
 ```
 
 전략 A를 우선 사용하되, 정확한 수량 확인이 필요한 경우 전략 B를 보조적으로 사용한다.
+Repository 의존 없이 JdbcTemplate만으로 검증하여 테스트와 도메인 모델 간 결합을 최소화한다.
 
 ---
 
