@@ -21,6 +21,9 @@ public class ProductService {
     }
 
     public Product create(final CreateProductRequest request) {
+        if (request.getPrice() <= 0) {
+            throw new IllegalArgumentException("상품 가격은 1 이상이어야 합니다");
+        }
         final Category category = categoryRepository.findById(request.getCategoryId()).orElseThrow();
         final Product product = new Product(request.getName(), request.getPrice(), request.getImageUrl(), category);
         return productRepository.save(product);
