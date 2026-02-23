@@ -17,6 +17,9 @@ public class CategoryService {
     }
 
     public Category create(final CreateCategoryRequest request) {
+        if (request.getName() == null || request.getName().isBlank()) {
+            throw new IllegalArgumentException("카테고리 이름은 필수입니다");
+        }
         return categoryRepository.save(new Category(request.getName()));
     }
 
