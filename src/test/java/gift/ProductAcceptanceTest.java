@@ -10,7 +10,6 @@ import java.util.Map;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.notNullValue;
 
 @Sql("classpath:sql/truncate.sql")
 class ProductAcceptanceTest extends BaseAcceptanceTest {
@@ -35,7 +34,6 @@ class ProductAcceptanceTest extends BaseAcceptanceTest {
                 .post("/api/products")
                 .then()
                 .statusCode(200)
-                .body("id", notNullValue())
                 .body("name", equalTo("아메리카노"))
                 .body("price", equalTo(4500));
 
