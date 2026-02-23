@@ -17,6 +17,18 @@ repositories {
 	mavenCentral()
 }
 
+tasks.register('startDb', Exec) {
+    commandLine 'bash', 'scripts/wait-for-db.sh'
+}
+
+tasks.register('cucumberTest', Test) {
+    useJUnitPlatform()
+    filter {
+        includeTest 'gift.cucumber.CucumberTest', '*'
+    }
+    dependsOn 'startDb'
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'

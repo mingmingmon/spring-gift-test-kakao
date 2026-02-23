@@ -34,26 +34,26 @@ public class GiftStepDefs {
 	@먼저("보내는 회원과 받는 회원이 존재한다")
 	public void 회원이_존재한다() {
 		jdbcTemplate.execute(
-			"MERGE INTO member (id, name, email) VALUES (1, '보내는사람', 'sender@test.com')");
+			"INSERT INTO member (id, name, email) VALUES (1, '보내는사람', 'sender@test.com') ON CONFLICT (id) DO NOTHING");
 		jdbcTemplate.execute(
-			"MERGE INTO member (id, name, email) VALUES (2, '받는사람', 'receiver@test.com')");
+			"INSERT INTO member (id, name, email) VALUES (2, '받는사람', 'receiver@test.com') ON CONFLICT (id) DO NOTHING");
 	}
 
 	@먼저("상품과 옵션이 존재하고 재고는 {int}개이다")
 	public void 상품과_옵션이_존재한다(int quantity) {
 		jdbcTemplate.execute(
-			"MERGE INTO category (id, name) VALUES (1, '테스트카테고리')");
+			"INSERT INTO category (id, name) VALUES (1, '테스트카테고리') ON CONFLICT (id) DO NOTHING");
 		jdbcTemplate.execute(
-			"MERGE INTO product (id, name, price, image_url, category_id) " +
-				"VALUES (1, '테스트상품', 1000, 'http://img.png', 1)");
+			"INSERT INTO product (id, name, price, image_url, category_id) " +
+				"VALUES (1, '테스트상품', 1000, 'http://img.png', 1) ON CONFLICT (id) DO NOTHING");
 		jdbcTemplate.execute(
-			"MERGE INTO option (id, name, quantity, product_id) " +
-				"VALUES (1, '기본옵션', " + quantity + ", 1)");
+			"INSERT INTO \"option\" (id, name, quantity, product_id) " +
+				"VALUES (1, '기본옵션', " + quantity + ", 1) ON CONFLICT (id) DO NOTHING");
 	}
 
 	@먼저("옵션의 재고를 {int}개로 설정한다")
 	public void 옵션의_재고를_설정한다(int quantity) {
-		jdbcTemplate.update("UPDATE option SET quantity = ? WHERE id = ?", quantity, OPTION_ID);
+		jdbcTemplate.update("UPDATE \"option\" SET quantity = ? WHERE id = ?", quantity, OPTION_ID);
 	}
 
 	@만일("{int}개를 선물하면")
@@ -119,7 +119,7 @@ public class GiftStepDefs {
 	@그리고("옵션의 재고는 {int}개이다")
 	public void 옵션의_재고는_N개이다(int expectedQuantity) {
 		int actual = jdbcTemplate.queryForObject(
-			"SELECT quantity FROM option WHERE id = ?", Integer.class, OPTION_ID);
+			"SELECT quantity FROM \"option\" WHERE id = ?", Integer.class, OPTION_ID);
 		assertThat(actual).isEqualTo(expectedQuantity);
 	}
 
