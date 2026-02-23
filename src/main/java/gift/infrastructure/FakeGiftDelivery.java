@@ -18,9 +18,10 @@ class FakeGiftDelivery implements GiftDelivery {
 
     @Override
     public void deliver(final Gift gift) {
-        final Member member = memberRepository.findById(gift.getFrom()).orElseThrow();
+        final Member sender = memberRepository.findById(gift.getFrom()).orElseThrow();
+        final Member receiver = memberRepository.findById(gift.getTo()).orElseThrow();
         final Option option = gift.getOption();
         final Product product = option.getProduct();
-        System.out.println(member.getName() + product.getName() + option.getName() + option.getQuantity());
+        System.out.println(sender.getName() + " → " + receiver.getName() + ": " + product.getName() + " " + option.getName());
     }
 }
