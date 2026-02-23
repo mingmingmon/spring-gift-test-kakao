@@ -133,7 +133,7 @@ class GiftAcceptanceTest extends BaseAcceptanceTest {
                 .then()
                 .statusCode(500);
 
-        // Then: 재고가 여전히 10 (트랜잭션 롤백 검증)
+        // Then: decrease()로 재고가 차감된 후 deliver()에서 예외 발생 → 트랜잭션 롤백으로 재고 원복
         assertThat(옵션_수량_조회(OPTION_ID)).isEqualTo(10);
     }
 
