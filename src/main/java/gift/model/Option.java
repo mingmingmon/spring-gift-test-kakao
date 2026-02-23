@@ -32,8 +32,11 @@ public class Option {
     }
 
     public void decrease(final int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("차감 수량은 1 이상이어야 합니다");
+        }
         if (this.quantity < quantity) {
-            throw new IllegalStateException();
+            throw new IllegalStateException("재고가 부족합니다");
         }
         this.quantity -= quantity;
     }
