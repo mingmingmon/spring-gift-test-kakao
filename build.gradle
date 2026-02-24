@@ -21,12 +21,65 @@ tasks.register('startDb', Exec) {
     commandLine 'bash', 'scripts/wait-for-db.sh'
 }
 
+tasks.register('dockerBuild', Exec) {
+    commandLine 'docker', 'compose', 'build', 'app'
+}
+
+tasks.register('dockerUp', Exec) {
+    commandLine 'docker', 'compose', 'up', '-d'
+    dependsOn 'startDb'
+}
+
+tasks.register('dockerDown', Exec) {
+    commandLine 'docker', 'compose', 'down'
+}
+
+tasks.register('waitForApp', Exec) {
+    commandLine 'bash', 'scripts/wait-for-app.sh'
+    dependsOn 'dockerUp'
+}
+
 tasks.register('cucumberTest', Test) {
     useJUnitPlatform()
     filter {
         includeTest 'gift.cucumber.CucumberTest', '*'
     }
-    dependsOn 'startDb'
+    systemProperty 'spring.profiles.active', 'cucumber-docker'
+    dependsOn 'waitForApp'
+
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
+}
+
+tasks.register('cucumberTestReport') {
+    dependsOn 'cucumberTest'
+    doLast {
+        def reportDir = file("build/reports/tests/cucumberTest")
+        def resultDir = file("build/test-results/cucumberTest")
+        if (resultDir.exists()) {
+            def total = 0, passed = 0, failed = 0, skipped = 0
+            fileTree(resultDir).matching { include '*.xml' }.each { xmlFile ->
+                def testsuite = new XmlSlurper().parse(xmlFile)
+                total += testsuite.@tests.toString().toInteger()
+                failed += testsuite.@failures.toString().toInteger()
+                skipped += testsuite.@skipped.toString().toInteger()
+            }
+            passed = total - failed - skipped
+            println "\n=================================="
+            println " Cucumber 테스트 결과"
+            println "=================================="
+            println " 전체: ${total}  |  성공: ${passed}  |  실패: ${failed}  |  스킵: ${skipped}"
+            println "=================================="
+            if (reportDir.exists()) {
+                println " HTML 리포트: file://${reportDir.absolutePath}/index.html"
+            }
+        } else {
+            println "테스트 결과가 없습니다. cucumberTest를 먼저 실행하세요."
+        }
+    }
 }
 
 dependencies {

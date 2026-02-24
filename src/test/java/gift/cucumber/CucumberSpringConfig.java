@@ -2,20 +2,21 @@ package gift.cucumber;
 
 import io.cucumber.spring.CucumberContextConfiguration;
 import io.restassured.RestAssured;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
 
 @CucumberContextConfiguration
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 public class CucumberSpringConfig {
 
-	@LocalServerPort
-	int port;
+	@Value("${test.app.base-url}")
+	String baseUrl;
 
 	@jakarta.annotation.PostConstruct
 	void setUp() {
-		RestAssured.port = port;
+		RestAssured.baseURI = baseUrl;
 	}
 }
