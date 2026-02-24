@@ -126,3 +126,58 @@ tasks.register('cucumberTest', Test) {
 **명시적으로 `networks:`를 정의해야 하는 경우:**
 - 여러 개의 docker-compose 파일 간에 서비스를 연결할 때
 - 서비스를 서로 다른 네트워크로 격리하고 싶을 때 (예: frontend ↔ backend만, backend ↔ db만 통신)
+
+---
+
+## 8. webEnvironment = NONE과 Spring 컨텍스트의 차이
+
+**궁금했던 점:** Docker로 앱을 띄우는데 왜 `webEnvironment = NONE`으로 설정하는가? 웹 서버와 Spring 컨텍스트는 무엇이 다른가?
+
+**웹 서버 (내장 Tomcat):**
+- Spring Boot가 내장하고 있는 Tomcat. `RANDOM_PORT`로 설정하면 테스트 JVM 안에서 Tomcat이 띄워져서 HTTP 요청을 받을 수 있음.
+
+**Spring 컨텍스트:**
+- Spring이 관리하는 Bean(객체)들의 집합. `@Service`, `@Repository`, `@Component` 등을 인스턴스로 만들고 `@Autowired`로 주입해주는 역할.
+
+**`NONE`을 쓴 이유:**
+- Docker 컨테이너 안에서 이미 내장 Tomcat이 8080 포트로 실행 중 (실제 테스트 대상)
+- 테스트 JVM에서도 `RANDOM_PORT`로 Tomcat을 띄우면 **Tomcat이 두 개** 떠버림
+- `NONE`으로 설정하면 Tomcat은 안 띄우되 Spring 컨텍스트는 유지 → `JdbcTemplate` 주입 가능
+
+| | `RANDOM_PORT` (기존) | `NONE` (변경 후) |
+|---|---|---|
+| 내장 Tomcat (웹 서버) | 띄움 | 안 띄움 |
+| Spring 컨텍스트 (Bean 관리) | 있음 | 있음 |
+| `@Autowired JdbcTemplate` | 사용 가능 | 사용 가능 |
+
+**결론:** `NONE`은 "웹 서버만 빼고 나머지 Spring 기능은 전부 쓰겠다"는 설정. 덕분에 기존 `DatabaseCleanUp`, `StepDefs` 코드를 수정 없이 그대로 사용할 수 있었음.
+
+---
+
+## 9. Docker 컨테이너와 테스트 JVM은 별개의 프로세스
+
+
+```
+┌─────────────────────────────┐     ┌─────────────────────────────┐
+│  Docker 컨테이너             │     │  내 Mac (호스트)              │
+│                             │     │                             │
+│  Spring Boot 앱 (Tomcat)    │     │  ./gradlew cucumberTest     │
+│  - API 요청 처리             │     │  = 테스트 JVM               │
+│  - 포트 8080 (→ 28080 매핑)  │     │  - RestAssured → HTTP 요청  │
+│                             │     │  - JdbcTemplate → DB 접근    │
+└──────────┬──────────────────┘     └──────────┬──────────────────┘
+           │                                   │
+           │         ┌──────────────┐          │
+           └────────▶│  Docker DB   │◀─────────┘
+                     │  PostgreSQL  │
+                     │  포트 5432   │
+                     └──────────────┘
+```
+
+- **Docker 컨테이너**: `docker compose up`으로 띄운 앱. 컨테이너 안에서 JVM이 돌고 있음
+- **테스트 JVM**: `./gradlew cucumberTest`를 실행하면 **Mac에서 직접** 새 JVM 프로세스가 시작됨. Docker 안이 아님
+
+**테스트 JVM에서 Spring 컨텍스트를 띄우는 이유:**
+- `DatabaseCleanUp`과 `StepDefs`에서 `@Autowired JdbcTemplate`으로 DB에 직접 접근해야 함
+- Spring 컨텍스트 없이는 `JdbcTemplate` 객체를 자동 생성/주입받을 수 없음
+- 수동으로 DataSource, JdbcTemplate을 설정하면 코드가 훨씬 복잡해짐
