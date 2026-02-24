@@ -40,6 +40,7 @@ tasks.register('waitForApp', Exec) {
 }
 
 tasks.register('cucumberTest', Test) {
+    outputs.upToDateWhen { false }
     useJUnitPlatform()
     filter {
         includeTest 'gift.cucumber.CucumberTest', '*'
