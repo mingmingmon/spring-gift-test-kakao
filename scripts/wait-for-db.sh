@@ -29,8 +29,8 @@ if ! docker info > /dev/null 2>&1; then
     fi
 fi
 
-# Docker Compose로 컨테이너 시작 (이미 실행 중이면 무시)
-docker compose up -d
+# Docker Compose로 DB 컨테이너만 시작 (이미 실행 중이면 무시)
+docker compose up -d db
 
 for i in $(seq 1 $MAX_RETRIES); do
     if docker compose exec -T db pg_isready -U gift -d gift_test > /dev/null 2>&1; then

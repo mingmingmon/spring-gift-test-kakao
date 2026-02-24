@@ -267,3 +267,58 @@ startDb ────────────────┘
 코드를 수정했을 때만 `COPY . .` 이후 스텝이 다시 실행됨.
 
 **결론:** Multi-stage build의 캐싱 이점은 그대로 유지되므로, 매번 체인에 포함시켜도 실질적인 성능 손해가 거의 없다.
+
+---
+
+## 13. `./gradlew test`에서 Cucumber 테스트 완전 제외하기
+
+**문제:** `./gradlew test` 실행 시 Cucumber 테스트까지 함께 실행되어 실패함. Cucumber 테스트는 Docker 앱 컨테이너가 필요한데 `test` 태스크는 DB만 띄우기 때문.
+
+**시도 1: `excludeTest` (실패)**
+```groovy
+filter {
+    excludeTest 'gift.cucumber.*', '*'
+}
+```
+Gradle의 `excludeTest`는 JUnit 테스트 클래스 이름 기반 필터. Cucumber 엔진은 `.feature` 파일에서 직접 테스트를 발견하기 때문에 이 필터를 우회함.
+
+**시도 2: `exclude` 클래스 파일 (부분 성공)**
+```groovy
+exclude 'gift/cucumber/**'
+```
+`CucumberTest.class` 등 클래스 파일을 제외하여 Suite 엔진을 통한 발견은 막음. 하지만 Cucumber 엔진이 `.feature` 파일을 직접 스캔해서 여전히 21개 시나리오가 실행됨.
+
+**시도 3: `excludeEngines` (부분 성공)**
+```groovy
+useJUnitPlatform {
+    excludeEngines 'cucumber'
+}
+```
+Cucumber 엔진의 직접 발견은 막음. 하지만 `CucumberTest`에 붙은 `@Suite`가 JUnit Suite 엔진을 통해 Cucumber를 다시 호출함.
+
+**최종 해결: 둘 다 적용 (성공)**
+```groovy
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeEngines 'cucumber'    // Cucumber 엔진의 직접 발견 차단
+    }
+    exclude 'gift/cucumber/**'       // Suite 엔진을 통한 간접 발견 차단
+    dependsOn 'startDb'
+}
+```
+
+**배운 점:** Cucumber 테스트는 두 가지 경로로 발견될 수 있다:
+1. Cucumber 엔진이 `.feature` 파일을 직접 스캔
+2. `@Suite` 어노테이션이 붙은 `CucumberTest` 클래스를 JUnit Suite 엔진이 발견
+
+두 경로를 모두 막아야 완전히 제외된다.
+
+---
+
+## 14. `wait-for-db.sh`에서 DB 컨테이너만 시작하기
+
+**문제:** `wait-for-db.sh`가 `docker compose up -d`로 **모든 서비스**(DB + App)를 시작함. `./gradlew test`는 DB만 필요한데 앱 컨테이너까지 뜨면서 같은 `gift_test` DB를 `create-drop`으로 점유 → 테스트 JVM과 스키마 충돌.
+
+**해결:** `docker compose up -d` → `docker compose up -d db`로 변경하여 DB 컨테이너만 시작.
+
+**배운 점:** `docker compose up -d`는 `docker-compose.yml`에 정의된 **모든 서비스**를 시작한다. 특정 서비스만 시작하려면 서비스명을 명시해야 한다 (`docker compose up -d db`).

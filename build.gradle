@@ -100,5 +100,9 @@ dependencies {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeEngines 'cucumber'
+	}
+	exclude 'gift/cucumber/**'
+	dependsOn 'startDb'
 }
