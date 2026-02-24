@@ -181,3 +181,89 @@ tasks.register('cucumberTest', Test) {
 - `DatabaseCleanUp`과 `StepDefs`에서 `@Autowired JdbcTemplate`으로 DB에 직접 접근해야 함
 - Spring 컨텍스트 없이는 `JdbcTemplate` 객체를 자동 생성/주입받을 수 없음
 - 수동으로 DataSource, JdbcTemplate을 설정하면 코드가 훨씬 복잡해짐
+
+---
+
+## 10. Gradle dependsOn으로 dockerBuild를 체인에 포함시키기
+
+**문제:** `./gradlew cucumberTest`의 의존성 체인에 `dockerBuild`가 빠져있어서 이미지 빌드를 별도로 해야 했음.
+
+**기존 체인:**
+```
+startDb → dockerUp → waitForApp → cucumberTest
+```
+`dockerBuild`가 체인에 없어서 코드 변경 후 `./gradlew dockerBuild`를 먼저 실행해야 했음.
+
+**해결:** `dockerUp`의 `dependsOn`에 `dockerBuild`를 추가:
+```groovy
+tasks.register('dockerUp', Exec) {
+    commandLine 'docker', 'compose', 'up', '-d'
+    dependsOn 'startDb', 'dockerBuild'
+}
+```
+
+**변경 후 체인:**
+```
+startDb ──┐
+           ├→ dockerUp → waitForApp → cucumberTest → dockerDown
+dockerBuild┘
+```
+
+`startDb`와 `dockerBuild`는 서로 의존성이 없으므로 Gradle이 병렬로 실행할 수 있음.
+
+**결과:** `./gradlew cucumberTest` 한 줄로 이미지 빌드부터 테스트 실행, 컨테이너 정리까지 전부 자동화. (`finalizedBy`로 `dockerDown` 연결)
+
+---
+
+## 11. dockerBuild도 Docker 데몬이 필요하다
+
+**에러 메시지:**
+```
+failed to connect to the docker API at unix:///...docker.sock;
+check if the path is correct and if the daemon is running
+```
+
+**원인:** `dockerBuild`와 `startDb`가 서로 의존성이 없어서 Gradle이 `dockerBuild`를 먼저 실행할 수 있었음. Docker 데몬이 아직 안 켜진 상태에서 `docker compose build`를 시도하여 실패.
+
+**해결:** `dockerBuild`도 `startDb`에 의존하도록 변경:
+```groovy
+tasks.register('dockerBuild', Exec) {
+    commandLine 'docker', 'compose', 'build', 'app'
+    dependsOn 'startDb'
+}
+```
+
+**변경 후 체인:**
+```
+startDb → dockerBuild ─┐
+                        ├→ dockerUp → waitForApp → cucumberTest → dockerDown
+startDb ────────────────┘
+```
+
+**배운 점:** `dependsOn`이 없는 태스크들은 Gradle이 어떤 순서로든 실행할 수 있다. Docker 데몬이 필요한 태스크는 반드시 데몬 시작 태스크에 의존시켜야 한다.
+
+---
+
+## 12. dockerBuild를 매번 실행해도 괜찮은 이유 (Docker 레이어 캐싱)
+
+**궁금했던 점:** `dockerBuild`를 체인에 포함시키면 매번 이미지를 다시 빌드해야 하는 것 아닌가? Multi-stage build의 이점을 못 누리게 되는 것 아닌가?
+
+**답: 아니다. Docker의 레이어 캐싱 덕분에 코드가 변경되지 않으면 몇 초 만에 끝난다.**
+
+`docker compose build`는 매번 실행되지만, Dockerfile의 각 스텝(레이어)을 이전 결과와 비교하여 변경이 없으면 `CACHED`로 처리한다.
+
+코드 변경 없이 빌드할 때:
+```
+#7 [build 2/4] WORKDIR /app
+#7 CACHED
+
+#8 [build 3/4] COPY . .
+#8 CACHED
+
+#9 [build 4/4] RUN gradle bootJar --no-daemon
+#9 CACHED
+```
+
+코드를 수정했을 때만 `COPY . .` 이후 스텝이 다시 실행됨.
+
+**결론:** Multi-stage build의 캐싱 이점은 그대로 유지되므로, 매번 체인에 포함시켜도 실질적인 성능 손해가 거의 없다.

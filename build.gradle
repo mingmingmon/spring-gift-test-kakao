@@ -23,11 +23,12 @@ tasks.register('startDb', Exec) {
 
 tasks.register('dockerBuild', Exec) {
     commandLine 'docker', 'compose', 'build', 'app'
+    dependsOn 'startDb'
 }
 
 tasks.register('dockerUp', Exec) {
     commandLine 'docker', 'compose', 'up', '-d'
-    dependsOn 'startDb'
+    dependsOn 'startDb', 'dockerBuild'
 }
 
 tasks.register('dockerDown', Exec) {
@@ -53,6 +54,8 @@ tasks.register('cucumberTest', Test) {
         showStandardStreams = true
         exceptionFormat = 'full'
     }
+
+    finalizedBy 'dockerDown'
 }
 
 tasks.register('cucumberTestReport') {
