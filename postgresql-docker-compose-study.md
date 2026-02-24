@@ -88,3 +88,35 @@ filter {
 
 - `dependsOn 'startDb'`가 핵심: Gradle이 cucumberTest 전에 startDb를 먼저 실행하도록 보장
 - DB가 이미 떠있으면 `docker compose up -d`가 바로 통과하고, 꺼져있으면 자동으로 시작
+
+## 7. macOS에서 Docker 데몬 자동 시작
+
+- macOS는 Linux가 아닌 **Unix(BSD) 기반**이라 Docker 데몬(`dockerd`)을 직접 실행할 수 없음
+- Docker가 의존하는 cgroups, namespaces는 **Linux 커널 전용** 기능이므로 macOS에서는 반드시 **Linux VM**이 필요
+- `docker` CLI는 클라이언트일 뿐, 데몬 없이는 동작하지 않음
+
+### Docker 데몬을 띄워주는 도구들
+
+| 도구 | 특징 |
+|------|------|
+| Docker Desktop | GUI 포함, 무거움 |
+| colima | CLI만, 경량 VM (`brew install colima`) |
+| OrbStack | 경량 대안 |
+
+### wait-for-db.sh에서의 자동 시작 전략
+
+Docker Desktop 실행 전에 먼저 colima로 경량 데몬 실행을 시도하고, colima가 없으면 Docker Desktop으로 폴백:
+
+```bash
+if ! docker info > /dev/null 2>&1; then
+    if command -v colima > /dev/null 2>&1; then
+        colima start           # 경량 VM만 시작
+    else
+        open -g -a Docker      # Docker Desktop 백그라운드 실행 (-g: 포커스 안 뺏김)
+    fi
+    # 데몬 준비될 때까지 대기...
+fi
+```
+
+- `colima start`: Docker Desktop 없이 최소한의 Linux VM만 띄워서 Docker 데몬 실행
+- `open -g -a Docker`: colima가 없을 때 Docker Desktop을 백그라운드로 실행 (폴백)
