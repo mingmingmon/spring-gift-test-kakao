@@ -25,8 +25,6 @@ public class GiftStepDefs {
 	private static final long RECEIVER_ID = 2L;
 	private static final long OPTION_ID = 1L;
 
-	private Response lastGiftResponse;
-
 	public GiftStepDefs(SharedContext context) {
 		this.context = context;
 	}
@@ -58,14 +56,12 @@ public class GiftStepDefs {
 
 	@만일("{int}개를 선물하면")
 	public void N개를_선물하면(int quantity) {
-		lastGiftResponse = 선물하기_요청(SENDER_ID, OPTION_ID, RECEIVER_ID, quantity);
-		context.setLastResponse(lastGiftResponse);
+		context.setLastResponse(선물하기_요청(SENDER_ID, OPTION_ID, RECEIVER_ID, quantity));
 	}
 
 	@그리고("{int}개를 추가로 선물하면")
 	public void N개를_추가로_선물하면(int quantity) {
-		lastGiftResponse = 선물하기_요청(SENDER_ID, OPTION_ID, RECEIVER_ID, quantity);
-		context.setLastResponse(lastGiftResponse);
+		context.setLastResponse(선물하기_요청(SENDER_ID, OPTION_ID, RECEIVER_ID, quantity));
 	}
 
 	@만일("존재하지 않는 옵션으로 선물하면")
@@ -113,7 +109,7 @@ public class GiftStepDefs {
 
 	@그러면("마지막 응답 상태 코드는 {int}이다")
 	public void 마지막_응답_상태_코드는(int statusCode) {
-		lastGiftResponse.then().statusCode(statusCode);
+		context.getLastResponse().then().statusCode(statusCode);
 	}
 
 	@그리고("옵션의 재고는 {int}개이다")
