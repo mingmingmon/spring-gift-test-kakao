@@ -2,3 +2,9 @@ build/
 .gradle/
 .idea/
 .git/
+*.md
+acceptance-test-docs/
+scripts/
+docker-compose.yml
+.dockerignore
+Dockerfile
